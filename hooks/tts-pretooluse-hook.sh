@@ -1,8 +1,13 @@
 #!/bin/bash
 # Claude Code PreToolUse TTS Hook - Reads text that appears before tool uses
 
-# Voice configuration - can be set via KOKORO_VOICE env var in ~/.claude/settings.json
-VOICE="${KOKORO_VOICE:-af_sky}"
+# TTS enabled/disabled - set TTS_ENABLED=false to silence all TTS
+if [ "${TTS_ENABLED:-true}" = "false" ]; then
+  exit 0
+fi
+
+# TTS Backend: "kokoro" (default, higher quality) or "say" (macOS built-in, faster)
+TTS_BACKEND="${TTS_BACKEND:-kokoro}"
 
 # Audio ducking configuration - lowers Apple Music volume while TTS plays (like Google Maps in CarPlay)
 # macOS only - uses AppleScript to control Apple Music's internal volume
@@ -119,7 +124,7 @@ fi
 
 # Only proceed if we got a response and it's not empty
 if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
-  echo "[$(date)] Sending to kokoro-tts with $VOICE voice" >> /tmp/kokoro-hook.log
+  echo "[$(date)] Sending to TTS backend: $TTS_BACKEND" >> /tmp/kokoro-hook.log
   echo "[$(date)] Response length: ${#claude_response}, stripping markdown via strip_markdown.py" >> /tmp/kokoro-hook.log
 
   # Strip markdown formatting using mistune Python library
@@ -139,10 +144,8 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
   echo "$claude_response" > "$tmpfile"
 
   # Kill any existing TTS processes to prevent overlapping audio
-  # This ensures new narration doesn't overlap with previous TTS still playing
-  if pkill -9 kokoro-tts 2>/dev/null; then
-    echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
-  fi
+  pkill -9 kokoro-tts 2>/dev/null && echo "[$(date)] Killed existing kokoro-tts process" >> /tmp/kokoro-hook.log
+  pkill -9 say 2>/dev/null && echo "[$(date)] Killed existing say process" >> /tmp/kokoro-hook.log
 
   # Audio ducking: lower other audio before TTS starts
   if [ "$AUDIO_DUCK_ENABLED" = "true" ] && [ -x "$AUDIO_DUCK_SCRIPT" ]; then
@@ -150,10 +153,16 @@ if [ -n "$claude_response" ] && [ ${#claude_response} -gt 10 ]; then
     "$AUDIO_DUCK_SCRIPT" duck
   fi
 
-  # Run kokoro-tts in background and capture PID for audio ducking restore
-  kokoro-tts "$tmpfile" --voice "$VOICE" --stream --model "MODEL_PATH_PLACEHOLDER/kokoro-v1.0.onnx" --voices "MODEL_PATH_PLACEHOLDER/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &
-  TTS_PID=$!
-  echo "[$(date)] Started kokoro-tts with PID: $TTS_PID" >> /tmp/kokoro-hook.log
+  # Run TTS in background based on configured backend
+  if [ "$TTS_BACKEND" = "say" ]; then
+    say -v "${SAY_VOICE:-Samantha}" -f "$tmpfile" >>/tmp/kokoro-hook.log 2>&1 &
+    TTS_PID=$!
+    echo "[$(date)] Started say with PID: $TTS_PID" >> /tmp/kokoro-hook.log
+  else
+    kokoro-tts "$tmpfile" --voice "${KOKORO_VOICE:-af_sky}" --stream --model "__CLAUDE_TTS_PROJECT_DIR__/kokoro-v1.0.onnx" --voices "__CLAUDE_TTS_PROJECT_DIR__/voices-v1.0.bin" >>/tmp/kokoro-hook.log 2>&1 &
+    TTS_PID=$!
+    echo "[$(date)] Started kokoro-tts with PID: $TTS_PID" >> /tmp/kokoro-hook.log
+  fi
 
   # In background: wait for TTS to finish, then restore audio volume
   if [ "$AUDIO_DUCK_ENABLED" = "true" ] && [ -x "$AUDIO_DUCK_SCRIPT" ]; then
