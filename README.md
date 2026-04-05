@@ -1,3 +1,6 @@
+Note: For personal use. Original fork from https://github.com/ktaletsk/claude-code-tts. Added Mac say command support and /tts command for setting.
+
+
 # Kokoro TTS Hook for Claude Code
 
 Automatic TTS (text-to-speech) integration for Claude Code using the [Kokoro TTS model](https://github.com/nazdridoy/kokoro-tts). This project provides voice feedback that reads Claude's responses aloud as you work.
